@@ -898,6 +898,11 @@ func (b *LocalBackend) populatePeerStatusLocked(sb *ipnstate.StatusBuilder) {
 		sb.AddUser(id, up)
 	}
 	exitNodeID := b.pm.CurrentPrefs().ExitNodeID()
+	var persistentKeepalive uint16
+	if val, parseErr := strconv.ParseUint(os.Getenv("TS_PERSISTENT_KEEPALIVE"), 10, 16); parseErr == nil {
+		persistentKeepalive = uint16(val)
+	}
+
 	for _, p := range b.peers {
 		var lastSeen time.Time
 		if p.LastSeen() != nil {
@@ -912,20 +917,21 @@ func (b *LocalBackend) populatePeerStatusLocked(sb *ipnstate.StatusBuilder) {
 		}
 		online := p.Online()
 		ps := &ipnstate.PeerStatus{
-			InNetworkMap:    true,
-			UserID:          p.User(),
-			AltSharerUserID: p.Sharer(),
-			TailscaleIPs:    tailscaleIPs,
-			HostName:        p.Hostinfo().Hostname(),
-			DNSName:         p.Name(),
-			OS:              p.Hostinfo().OS(),
-			LastSeen:        lastSeen,
-			Online:          online != nil && *online,
-			ShareeNode:      p.Hostinfo().ShareeNode(),
-			ExitNode:        p.StableID() != "" && p.StableID() == exitNodeID,
-			SSH_HostKeys:    p.Hostinfo().SSH_HostKeys().AsSlice(),
-			Location:        p.Hostinfo().Location(),
-			Capabilities:    p.Capabilities().AsSlice(),
+			InNetworkMap:       true,
+			UserID:             p.User(),
+			AltSharerUserID:    p.Sharer(),
+			TailscaleIPs:       tailscaleIPs,
+			HostName:           p.Hostinfo().Hostname(),
+			DNSName:            p.Name(),
+			OS:                 p.Hostinfo().OS(),
+			LastSeen:           lastSeen,
+			Online:             online != nil && *online,
+			ShareeNode:         p.Hostinfo().ShareeNode(),
+			ExitNode:           p.StableID() != "" && p.StableID() == exitNodeID,
+			SSH_HostKeys:       p.Hostinfo().SSH_HostKeys().AsSlice(),
+			Location:           p.Hostinfo().Location(),
+			Capabilities:       p.Capabilities().AsSlice(),
+			PersistenKeepalive: persistentKeepalive,
 		}
 		if cm := p.CapMap(); cm.Len() > 0 {
 			ps.CapMap = make(tailcfg.NodeCapMap, cm.Len())

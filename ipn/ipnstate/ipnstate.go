@@ -313,6 +313,8 @@ type PeerStatus struct {
 	KeyExpiry *time.Time `json:",omitempty"`
 
 	Location *tailcfg.Location `json:",omitempty"`
+
+	PersistenKeepalive uint16 `json:",omitempty"`
 }
 
 // HasCap reports whether ps has the given capability.

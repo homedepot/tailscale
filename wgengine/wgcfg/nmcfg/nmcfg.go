@@ -8,6 +8,8 @@ import (
 	"bytes"
 	"fmt"
 	"net/netip"
+	"os"
+	"strconv"
 	"strings"
 
 	"tailscale.com/tailcfg"
@@ -100,9 +102,15 @@ func WGCfg(nm *netmap.NetworkMap, logf logger.Logf, flags netmap.WGConfigFlags, 
 			continue
 		}
 
+		var persistentKeepalive uint16
+		if val, parseErr := strconv.ParseUint(os.Getenv("TS_PERSISTENT_KEEPALIVE"), 10, 16); parseErr == nil {
+			persistentKeepalive = uint16(val)
+		}
+
 		cfg.Peers = append(cfg.Peers, wgcfg.Peer{
-			PublicKey: peer.Key(),
-			DiscoKey:  peer.DiscoKey(),
+			PublicKey:           peer.Key(),
+			DiscoKey:            peer.DiscoKey(),
+			PersistentKeepalive: persistentKeepalive,
 		})
 		cpeer := &cfg.Peers[len(cfg.Peers)-1]
 
