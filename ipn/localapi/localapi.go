@@ -465,7 +465,7 @@ func (h *Handler) serveWhoIsWithBackend(w http.ResponseWriter, r *http.Request, 
 	)
 	var ipp netip.AddrPort
 	if v := r.FormValue("addr"); v != "" {
-		log.Printf("whois: addr=%q is_nodekey %b", v, strings.HasPrefix(v, "nodekey:"))
+		log.Printf("whois: addr=%q is_nodekey %v", v, strings.HasPrefix(v, "nodekey:"))
 		if strings.HasPrefix(v, "nodekey:") {
 			var k key.NodePublic
 			if err := k.UnmarshalText([]byte(v)); err != nil {
