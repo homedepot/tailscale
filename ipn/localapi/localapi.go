@@ -474,7 +474,7 @@ func (h *Handler) serveWhoIsWithBackend(w http.ResponseWriter, r *http.Request, 
 				return
 			}
 			n, u, ok = b.WhoIsNodeKey(k)
-			log.Printf("whois: nodekey %v -> %v %v %v", k.ShortString(), n.StableID(), n.Name(), ok)
+			log.Printf("whois: nodekey %v, ok %v, n %v, u %v", k, ok, n, u)
 		} else if ip, err := netip.ParseAddr(v); err == nil {
 			ipp = netip.AddrPortFrom(ip, 0)
 		} else {
