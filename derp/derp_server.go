@@ -1156,19 +1156,24 @@ var localClient tailscale.LocalClient
 // verifyClient checks whether the client is allowed to connect to the derper,
 // depending on how & whether the server's been configured to verify.
 func (s *Server) verifyClient(ctx context.Context, clientKey key.NodePublic, info *clientInfo, clientIP netip.Addr) error {
+	log.Printf("derp: verifying client %v ip %v, info %v", clientKey, clientIP, info)
 	// tailscaled-based verification:
 	if s.verifyClientsLocalTailscaled {
+		log.Printf("derp: verifying client %v via local tailscaled, ip %v, info %v", clientKey, clientIP, info)
 		_, err := localClient.WhoIsNodeKey(ctx, clientKey)
-		if err == tailscale.ErrPeerNotFound {
+		if errors.Is(err, tailscale.ErrPeerNotFound) {
+			log.Printf("derp: peer %v not authorized (not found in local tailscaled, ip %v, info %v", clientKey, clientIP, info)
 			return fmt.Errorf("peer %v not authorized (not found in local tailscaled)", clientKey)
 		}
 		if err != nil {
+			log.Printf("derp: failed to query local tailscaled status for %v, ip %v, info %v: %v", clientKey, clientIP, info, err)
 			return fmt.Errorf("failed to query local tailscaled status for %v: %w", clientKey, err)
 		}
 	}
 
 	// admission controller-based verification:
 	if s.verifyClientsURL != "" {
+		log.Printf("derp: verifying client %v via admission controller %v, ip %v", clientKey, s.verifyClientsURL, clientIP)
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 
@@ -1177,14 +1182,17 @@ func (s *Server) verifyClient(ctx context.Context, clientKey key.NodePublic, inf
 			Source:     clientIP,
 		})
 		if err != nil {
+			log.Printf("derp: failed to marshal admission controller request: %v", err)
 			return err
 		}
 		req, err := http.NewRequestWithContext(ctx, "POST", s.verifyClientsURL, bytes.NewReader(jreq))
 		if err != nil {
+			log.Printf("derp: failed to create admission controller request: %v", err)
 			return err
 		}
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
+			log.Printf("derp: admission controller unreachable; allowing client %v: %v", clientKey, err)
 			if s.verifyClientsURLFailOpen {
 				s.logf("admission controller unreachable; allowing client %v", clientKey)
 				return nil
@@ -1193,17 +1201,21 @@ func (s *Server) verifyClient(ctx context.Context, clientKey key.NodePublic, inf
 		}
 		defer res.Body.Close()
 		if res.StatusCode != 200 {
+			log.Printf("derp: admission controller: %v", res.Status)
 			return fmt.Errorf("admission controller: %v", res.Status)
 		}
 		var jres tailcfg.DERPAdmitClientResponse
 		if err := json.NewDecoder(io.LimitReader(res.Body, 4<<10)).Decode(&jres); err != nil {
+			log.Printf("derp: failed to decode admission controller response: %v", err)
 			return err
 		}
 		if !jres.Allow {
+			log.Printf("derp: admission controller: %v/%v not allowed", clientKey, clientIP)
 			return fmt.Errorf("admission controller: %v/%v not allowed", clientKey, clientIP)
 		}
 		// TODO(bradfitz): add policy for configurable bandwidth rate per client?
 	}
+	log.Printf("derp: client %v allowed, ip %v, info %v", clientKey, clientIP, info)
 	return nil
 }
 
