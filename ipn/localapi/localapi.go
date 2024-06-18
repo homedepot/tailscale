@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"maps"
 	"mime"
 	"mime/multipart"
@@ -464,13 +465,16 @@ func (h *Handler) serveWhoIsWithBackend(w http.ResponseWriter, r *http.Request, 
 	)
 	var ipp netip.AddrPort
 	if v := r.FormValue("addr"); v != "" {
+		log.Printf("whois: addr=%q is_nodekey %b", v, strings.HasPrefix(v, "nodekey:"))
 		if strings.HasPrefix(v, "nodekey:") {
 			var k key.NodePublic
 			if err := k.UnmarshalText([]byte(v)); err != nil {
+				log.Printf("whois: invalid nodekey in 'addr' %q parameter", v)
 				http.Error(w, "invalid nodekey in 'addr' parameter", http.StatusBadRequest)
 				return
 			}
 			n, u, ok = b.WhoIsNodeKey(k)
+			log.Printf("whois: nodekey %v -> %v %v %v", k.ShortString(), n.StableID(), n.Name(), ok)
 		} else if ip, err := netip.ParseAddr(v); err == nil {
 			ipp = netip.AddrPortFrom(ip, 0)
 		} else {
