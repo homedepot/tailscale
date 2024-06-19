@@ -45,7 +45,7 @@ func m(srcs []netip.Prefix, dsts []NetPortRange, protos ...ipproto.Proto) Match 
 		protos = defaultProtos
 	}
 	return Match{
-		IPProto:      protos,
+		IPProto:      views.SliceOf(protos),
 		Srcs:         srcs,
 		SrcsContains: ipset.NewContainsIPFunc(views.SliceOf(srcs)),
 		Dsts:         dsts,
@@ -251,41 +251,30 @@ func TestNoAllocs(t *testing.T) {
 func TestParseIPSet(t *testing.T) {
 	tests := []struct {
 		host    string
-		bits    int
 		want    []netip.Prefix
 		wantErr string
 	}{
-		{"8.8.8.8", 24, pfx("8.8.8.8/24"), ""},
-		{"2601:1234::", 64, pfx("2601:1234::/64"), ""},
-		{"8.8.8.8", 33, nil, `invalid CIDR size 33 for IP "8.8.8.8"`},
-		{"8.8.8.8", -1, pfx("8.8.8.8/32"), ""},
-		{"8.8.8.8", 32, pfx("8.8.8.8/32"), ""},
-		{"8.8.8.8/24", -1, nil, "8.8.8.8/24 contains non-network bits set"},
-		{"8.8.8.0/24", 18, pfx("8.8.8.0/24"), ""}, // the 18 is ignored
-		{"1.0.0.0-1.255.255.255", 5, pfx("1.0.0.0/8"), ""},
-		{"1.0.0.0-2.1.2.3", 5, pfx("1.0.0.0/8", "2.0.0.0/16", "2.1.0.0/23", "2.1.2.0/30"), ""},
-		{"1.0.0.2-1.0.0.1", -1, nil, "invalid IP range \"1.0.0.2-1.0.0.1\""},
-		{"2601:1234::", 129, nil, `invalid CIDR size 129 for IP "2601:1234::"`},
-		{"0.0.0.0", 24, pfx("0.0.0.0/24"), ""},
-		{"::", 64, pfx("::/64"), ""},
-		{"*", 24, pfx("0.0.0.0/0", "::/0"), ""},
+		{"8.8.8.8", pfx("8.8.8.8/32"), ""},
+		{"1::2", pfx("1::2/128"), ""},
+		{"8.8.8.0/24", pfx("8.8.8.0/24"), ""},
+		{"8.8.8.8/24", nil, "8.8.8.8/24 contains non-network bits set"},
+		{"1.0.0.0-1.255.255.255", pfx("1.0.0.0/8"), ""},
+		{"1.0.0.0-2.1.2.3", pfx("1.0.0.0/8", "2.0.0.0/16", "2.1.0.0/23", "2.1.2.0/30"), ""},
+		{"1.0.0.2-1.0.0.1", nil, "invalid IP range \"1.0.0.2-1.0.0.1\""},
+		{"*", pfx("0.0.0.0/0", "::/0"), ""},
 	}
 	for _, tt := range tests {
-		var bits *int
-		if tt.bits != -1 {
-			bits = &tt.bits
-		}
-		got, err := parseIPSet(tt.host, bits)
+		got, err := parseIPSet(tt.host)
 		if err != nil {
 			if err.Error() == tt.wantErr {
 				continue
 			}
-			t.Errorf("parseIPSet(%q, %v) error: %v; want error %q", tt.host, tt.bits, err, tt.wantErr)
+			t.Errorf("parseIPSet(%q) error: %v; want error %q", tt.host, err, tt.wantErr)
 		}
 		compareIP := cmp.Comparer(func(a, b netip.Addr) bool { return a == b })
 		compareIPPrefix := cmp.Comparer(func(a, b netip.Prefix) bool { return a == b })
 		if diff := cmp.Diff(got, tt.want, compareIP, compareIPPrefix); diff != "" {
-			t.Errorf("parseIPSet(%q, %v) = %s; want %s", tt.host, tt.bits, got, tt.want)
+			t.Errorf("parseIPSet(%q) = %s; want %s", tt.host, got, tt.want)
 			continue
 		}
 	}
@@ -767,12 +756,7 @@ func TestMatchesFromFilterRules(t *testing.T) {
 			},
 			want: []Match{
 				{
-					IPProto: []ipproto.Proto{
-						ipproto.TCP,
-						ipproto.UDP,
-						ipproto.ICMPv4,
-						ipproto.ICMPv6,
-					},
+					IPProto: defaultProtosView,
 					Dsts: []NetPortRange{
 						{
 							Net:   netip.MustParsePrefix("0.0.0.0/0"),
@@ -804,9 +788,9 @@ func TestMatchesFromFilterRules(t *testing.T) {
 			},
 			want: []Match{
 				{
-					IPProto: []ipproto.Proto{
+					IPProto: views.SliceOf([]ipproto.Proto{
 						ipproto.TCP,
-					},
+					}),
 					Dsts: []NetPortRange{
 						{
 							Net:   netip.MustParsePrefix("1.2.0.0/16"),
@@ -830,6 +814,7 @@ func TestMatchesFromFilterRules(t *testing.T) {
 			cmpOpts := []cmp.Option{
 				cmp.Comparer(func(a, b netip.Addr) bool { return a == b }),
 				cmp.Comparer(func(a, b netip.Prefix) bool { return a == b }),
+				cmp.Comparer(func(a, b views.Slice[ipproto.Proto]) bool { return views.SliceEqual(a, b) }),
 				cmpopts.IgnoreFields(Match{}, ".SrcsContains"),
 			}
 			if diff := cmp.Diff(got, tt.want, cmpOpts...); diff != "" {
@@ -1075,11 +1060,10 @@ func benchmarkFile(b *testing.B, file string, opt benchOpt) {
 		pkt.TCPFlags = packet.TCPPsh // anything that's not SYN
 	}
 	if opt.udpOpen {
-		tuple := flowtrack.Tuple{
-			Proto: proto,
-			Src:   netip.AddrPortFrom(srcIP, sport),
-			Dst:   netip.AddrPortFrom(dstIP, dport),
-		}
+		tuple := flowtrack.MakeTuple(proto,
+			netip.AddrPortFrom(srcIP, sport),
+			netip.AddrPortFrom(dstIP, dport),
+		)
 		f.state.mu.Lock()
 		f.state.lru.Add(tuple, struct{}{})
 		f.state.mu.Unlock()
